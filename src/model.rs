@@ -237,8 +237,9 @@ impl HapticDemo {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TriggerTarget {
+    #[default]
     Both,
     Left,
     Right,
@@ -272,14 +273,9 @@ impl TriggerTarget {
     }
 }
 
-impl Default for TriggerTarget {
-    fn default() -> Self {
-        Self::Both
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AdaptiveTriggerPreset {
+    #[default]
     Off,
     Bow,
     MachineGun,
@@ -342,12 +338,6 @@ impl AdaptiveTriggerPreset {
             .position(|preset| *preset == self)
             .unwrap_or(0);
         Self::ALL[(index + Self::ALL.len() - 1) % Self::ALL.len()]
-    }
-}
-
-impl Default for AdaptiveTriggerPreset {
-    fn default() -> Self {
-        Self::Off
     }
 }
 
