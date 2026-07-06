@@ -1,5 +1,11 @@
 # DualSenseTUI
 
+[![CI](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/ci.yml/badge.svg)](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/ci.yml)
+[![Release](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/release.yml/badge.svg)](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/minashkinvladislav/DualSenseTUI?include_prereleases)](https://github.com/minashkinvladislav/DualSenseTUI/releases)
+![Rust](https://img.shields.io/badge/rust-1.82%2B-orange)
+![macOS](https://img.shields.io/badge/macOS-IOKit-blue)
+
 Terminal DualSense configurator for macOS.
 
 ## Features
@@ -11,6 +17,47 @@ Terminal DualSense configurator for macOS.
 - Haptics demos: click, thump, buzz, heartbeat, sweep, mixed heavy/sharp taps, and alternating pulses.
 - Adaptive trigger presets: bow, machine gun, pistol, rigid, brake, pulse, and click.
 - JSON profile stored at `~/.config/DualSenseTUI/profile.json`.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/devices.png" width="420" alt="DualSenseTUI device selection">
+      <br>
+      <sub>Devices</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/input.png" width="420" alt="DualSenseTUI live input view">
+      <br>
+      <sub>Live input</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/lightbar.png" width="420" alt="DualSenseTUI lightbar controls">
+      <br>
+      <sub>Lightbar</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/haptics.png" width="420" alt="DualSenseTUI haptics demos">
+      <br>
+      <sub>Haptics</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/triggers.png" width="420" alt="DualSenseTUI adaptive trigger presets">
+      <br>
+      <sub>Adaptive triggers</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/mapping.png" width="420" alt="DualSenseTUI button mapping profile">
+      <br>
+      <sub>Button mapping</sub>
+    </td>
+  </tr>
+</table>
 
 ## Install
 

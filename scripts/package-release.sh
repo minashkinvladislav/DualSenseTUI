@@ -32,6 +32,8 @@ mkdir -p "$staging_dir"
 cp "target/release/${app_name}" "$staging_dir/"
 cp README.md "$staging_dir/"
 cp CHANGELOG.md "$staging_dir/"
+mkdir -p "$staging_dir/docs"
+cp -R docs/screenshots "$staging_dir/docs/"
 
 tar -C dist -czf "$archive_path" "$archive_base"
 shasum -a 256 "$archive_path" > "${archive_path}.sha256"
