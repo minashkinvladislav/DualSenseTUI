@@ -1,6 +1,6 @@
 # DualSenseTUI
 
-[![CI](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/ci.yml/badge.svg)](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/ci.yml)
+[![CI](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/ci.yml)
 [![Release](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/release.yml/badge.svg)](https://github.com/minashkinvladislav/DualSenseTUI/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/minashkinvladislav/DualSenseTUI?include_prereleases)](https://github.com/minashkinvladislav/DualSenseTUI/releases)
 ![Rust](https://img.shields.io/badge/rust-1.82%2B-orange)
