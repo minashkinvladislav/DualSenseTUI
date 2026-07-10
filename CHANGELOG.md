@@ -4,6 +4,7 @@
 
 ## 0.2.0 - 2026-07-10
 
+- Added an explicit GitHub unsigned-preview release path that publishes a universal DMG and checksum when notarization secrets are absent.
 - Refined the SwiftUI live-input dashboard with the controller's diamond face-button layout, live L1/R1 shoulder controls, compact Mapping rows, and no sidebar-toggle toolbar button.
 - Reapplied the configured lightbar color on global macOS app-activation changes while the UI is inactive, avoiding the daemon fallback delay during normal focus switching.
 - Added a native SwiftUI `DualSenseTUI.app` desktop interface backed by the same Rust IOKit service as the terminal UI.

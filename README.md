@@ -251,4 +251,6 @@ DUALSENSE_TUI_NOTARY_PROFILE=DualSenseTUI-notary \
 scripts/package-macos-dmg.sh
 ```
 
-The signed workflow publishes `dist/DualSenseTUI-<version>-universal.dmg` and its SHA-256 checksum. Configure the required release secrets in GitHub before pushing a version tag; see [the release checklist](docs/RELEASE.md).
+The release workflow publishes `dist/DualSenseTUI-<version>-universal.dmg` and its SHA-256 checksum. Configure the required release secrets in GitHub before pushing a version tag to publish a notarized stable release; see [the release checklist](docs/RELEASE.md).
+
+When no signing secrets are configured, the tag workflow instead publishes an **Unsigned Preview** pre-release. Its DMG is ad-hoc signed and not notarized, so macOS Gatekeeper can require an explicit approval before first launch. Prefer a notarized stable release for general users.

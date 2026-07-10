@@ -62,7 +62,13 @@ The script refuses a distribution build when the Developer ID identity or notary
 
 ## GitHub Release
 
-The tag workflow builds a universal DMG and only publishes after code signing and notarization complete. Configure these repository secrets before pushing a `v*` tag:
+The tag workflow always builds a universal DMG. Its distribution mode is explicit:
+
+- With **none** of the signing secrets configured, it publishes an **Unsigned Preview** GitHub pre-release. The app is ad-hoc signed and not notarized; Gatekeeper can require an explicit approval before first launch.
+- With **all** six secrets configured, it publishes a notarized stable release.
+- With only some secrets configured, it fails rather than silently downgrading a presumed signed release.
+
+Configure these repository secrets for a notarized stable release:
 
 - `APPLE_CERTIFICATE_BASE64`: base64-encoded `.p12` containing the Developer ID Application certificate and private key.
 - `APPLE_CERTIFICATE_PASSWORD`: password for that `.p12`.
@@ -71,7 +77,7 @@ The tag workflow builds a universal DMG and only publishes after code signing an
 - `APPLE_TEAM_ID`: Apple Developer team ID.
 - `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for notarization.
 
-Create and push the annotated tag only after the secrets are present:
+Create and push the annotated tag:
 
 ```bash
 release_version="$(awk -F\" '/^version =/ { print $2; exit }' Cargo.toml)"
@@ -79,13 +85,13 @@ git tag -a "v${release_version}" -m "DualSenseTUI ${release_version}"
 git push origin main "v${release_version}"
 ```
 
-The workflow validates that the tag matches `Cargo.toml`, then intentionally fails early when a required secret is absent. That prevents a tag from publishing an ad-hoc or unnotarized “public” artifact. After correcting a workflow configuration issue, run **Release** manually from the same `v<version>` tag and enter that tag in the dispatch form.
+The workflow validates that the tag matches `Cargo.toml`. After correcting a workflow configuration issue, run **Release** manually from the same `v<version>` tag and enter that tag in the dispatch form.
 
 ## Distribution QA
 
 1. Download the release DMG on a clean macOS user account or another Mac.
 2. Verify the disk image mounts and offers `DualSenseTUI.app` plus the `Applications` shortcut.
 3. Drag the app to Applications and launch it from Finder.
-4. Confirm Gatekeeper accepts it without bypass instructions.
+4. For a notarized release, confirm Gatekeeper accepts it without bypass instructions. For an Unsigned Preview, confirm the release page states the warning prominently.
 5. Confirm the app starts the Rust controller service, detects a controller, and can request Accessibility for mouse output.
 6. Test replacing a prior app at the same `/Applications/DualSenseTUI.app` path; profiles must remain available and the background service must still point to that path. Re-enable the background service only if the app was moved elsewhere.
