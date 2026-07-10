@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>DualSenseTUI</string>
+  <key>CFBundleExecutable</key>
+  <string>DualSenseTUI</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.github.minashkinvladislav.dualsensetui</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleIconFile</key>
+  <string>DualSenseTUI.icns</string>
+  <key>CFBundleName</key>
+  <string>DualSenseTUI</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@VERSION@</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.utilities</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSAccessibilityUsageDescription</key>
+  <string>DualSenseTUI sends keyboard and mouse events only for mappings enabled by the user.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>DualSenseTUI analyzes system audio locally to generate controller haptic feedback.</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

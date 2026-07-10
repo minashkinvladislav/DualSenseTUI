@@ -7,7 +7,10 @@ use ratatui::{
 };
 
 use crate::{
-    app::{ConfiguratorApp, Tab},
+    app::{
+        ConfiguratorApp, HapticField, LightbarField, MappingView, MouseField, SystemField, Tab,
+        TriggerField,
+    },
     model::{AdaptiveTriggerPreset, Button, GamepadState, HapticDemo, Rgb, StickState},
 };
 
@@ -90,10 +93,15 @@ fn render_tabs(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
     let titles = Tab::ALL
         .into_iter()
         .map(|tab| {
-            if tab == app.active_tab {
-                Line::from(format!("> {}", tab.title()))
+            let title = if area.width < 88 {
+                tab.compact_title()
             } else {
-                Line::from(tab.title())
+                tab.title()
+            };
+            if tab == app.active_tab {
+                Line::from(format!("> {title}"))
+            } else {
+                Line::from(title)
             }
         })
         .collect::<Vec<_>>();
@@ -153,9 +161,11 @@ fn render_editor(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
     match app.active_tab {
         Tab::Devices => render_device_details(frame, area, app),
         Tab::Input => render_input(frame, area, app),
+        Tab::Sensors => render_sensors(frame, area, app),
         Tab::Lightbar => render_lightbar(frame, area, app),
         Tab::Haptics => render_haptics(frame, area, app),
         Tab::Triggers => render_adaptive_triggers(frame, area, app),
+        Tab::System => render_system(frame, area, app),
         Tab::Mapping => render_mapping(frame, area, app),
     }
 }
@@ -175,12 +185,28 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
             .battery_percent
             .map(|value| format!("{value}%"))
             .unwrap_or_else(|| "n/a".to_string());
+        let headset = if state.headset_connected { "yes" } else { "no" };
+        let microphone = if state.microphone_connected {
+            if state.microphone_muted {
+                "connected, muted"
+            } else {
+                "connected"
+            }
+        } else {
+            "not connected"
+        };
         Line::from(vec![
             Span::styled("Input: ", label_style()),
             Span::raw(&app.input_status),
             Span::raw("  "),
             Span::styled("Battery: ", label_style()),
-            Span::raw(battery),
+            Span::raw(format!("{} {}", battery, state.battery_status.label())),
+            Span::raw("  "),
+            Span::styled("Headset: ", label_style()),
+            Span::raw(headset),
+            Span::raw("  "),
+            Span::styled("Mic: ", label_style()),
+            Span::raw(microphone),
         ])
     } else {
         Line::from(vec![
@@ -204,9 +230,213 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
     }
 }
 
+fn render_sensors(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Min(3),
+        ])
+        .split(area);
+
+    let Some(state) = &app.live_input else {
+        let paragraph = Paragraph::new("Waiting for a DualSense input report.")
+            .block(panel_block("Sensors", app.active_tab == Tab::Sensors))
+            .wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+        return;
+    };
+
+    let touchpad = vec![
+        Line::from(vec![
+            Span::styled("Touch 1: ", label_style()),
+            Span::raw(touch_point_label(state.touch_points[0])),
+        ]),
+        Line::from(vec![
+            Span::styled("Touch 2: ", label_style()),
+            Span::raw(touch_point_label(state.touch_points[1])),
+        ]),
+        Line::from("Surface: 1920 x 1080"),
+    ];
+    frame.render_widget(
+        Paragraph::new(touchpad).block(panel_block("Touchpad", app.active_tab == Tab::Sensors)),
+        chunks[0],
+    );
+
+    let motion = &state.motion;
+    let motion_lines = vec![
+        Line::from(vec![
+            Span::styled("Gyro:  ", label_style()),
+            Span::raw(format!(
+                "x {:>6}  y {:>6}  z {:>6} raw",
+                motion.gyro[0], motion.gyro[1], motion.gyro[2]
+            )),
+        ]),
+        Line::from(vec![
+            Span::styled("Accel: ", label_style()),
+            Span::raw(format!(
+                "x {:>6}  y {:>6}  z {:>6} raw",
+                motion.accel[0], motion.accel[1], motion.accel[2]
+            )),
+        ]),
+        Line::from(format!("Timestamp: {} ticks", motion.sensor_timestamp)),
+    ];
+    frame.render_widget(
+        Paragraph::new(motion_lines).block(panel_block("Six-axis", false)),
+        chunks[1],
+    );
+
+    let crc = match state.bluetooth_crc_valid {
+        Some(true) => "valid",
+        Some(false) => "invalid",
+        None => "not present",
+    };
+    let diagnostics = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("Input sequence: ", label_style()),
+            Span::raw(state.report_sequence.to_string()),
+        ]),
+        Line::from(vec![
+            Span::styled("Bluetooth CRC: ", label_style()),
+            Span::raw(crc),
+        ]),
+        Line::from("Raw sensor units; calibration data remains in the controller feature report."),
+    ])
+    .block(panel_block("Diagnostics", false))
+    .wrap(Wrap { trim: true });
+    frame.render_widget(diagnostics, chunks[2]);
+}
+
+const SYSTEM_SECTION_COUNT: usize = 5;
+
+fn system_constraints() -> [Constraint; SYSTEM_SECTION_COUNT] {
+    [
+        Constraint::Length(3),
+        Constraint::Length(3),
+        Constraint::Length(3),
+        Constraint::Length(3),
+        Constraint::Min(3),
+    ]
+}
+
+fn render_system(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(system_constraints())
+        .split(area);
+    let system = &app.profile.system;
+
+    let indicator_selected = app.selected_system_field == SystemField::PlayerIndicator;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("Player LEDs: ", label_style()),
+            Span::styled(
+                system.player_indicator.label(),
+                selected_value_style(indicator_selected),
+            ),
+        ]))
+        .block(panel_block("Player indicator", indicator_selected)),
+        chunks[0],
+    );
+
+    let mute_selected = app.selected_system_field == SystemField::MicrophoneMute;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("Microphone: ", label_style()),
+            Span::styled(
+                if system.microphone_muted {
+                    "Muted"
+                } else {
+                    "Enabled"
+                },
+                selected_value_style(mute_selected),
+            ),
+        ]))
+        .block(panel_block("Mic mute and LED", mute_selected)),
+        chunks[1],
+    );
+
+    render_system_volume(
+        frame,
+        chunks[2],
+        "Controller speaker",
+        system.speaker_volume,
+        255,
+        app.selected_system_field == SystemField::SpeakerVolume,
+    );
+    render_system_volume(
+        frame,
+        chunks[3],
+        "Microphone level",
+        system.microphone_volume,
+        0x40,
+        app.selected_system_field == SystemField::MicrophoneVolume,
+    );
+
+    let route_selected = app.selected_system_field == SystemField::AudioRoute;
+    let transport = app
+        .devices
+        .get(app.selected_device)
+        .map(|device| {
+            if device.supports_usb_audio() {
+                "USB: audio endpoint is managed by macOS CoreAudio"
+            } else {
+                "Bluetooth: controller audio endpoint is not exposed by this backend"
+            }
+        })
+        .unwrap_or("No DualSense selected");
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled("Output route: ", label_style()),
+                Span::styled(
+                    system.audio_route.label(),
+                    selected_value_style(route_selected),
+                ),
+            ]),
+            Line::from(transport),
+            Line::from("Apply writes player LEDs, mute, volumes, and the selected route."),
+        ])
+        .block(panel_block("Audio and output", route_selected))
+        .wrap(Wrap { trim: true }),
+        chunks[4],
+    );
+}
+
+fn render_system_volume(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &'static str,
+    value: u8,
+    maximum: u8,
+    selected: bool,
+) {
+    let gauge = Gauge::default()
+        .block(panel_block(title, selected))
+        .gauge_style(gauge_style(selected, Color::Blue))
+        .ratio(f64::from(value) / f64::from(maximum))
+        .label(if selected {
+            format!("> {value:3} <")
+        } else {
+            format!("{value:3}")
+        });
+    frame.render_widget(gauge, area);
+}
+
+fn touch_point_label(point: Option<crate::model::TouchPoint>) -> String {
+    match point {
+        Some(point) => format!(
+            "id {}  x {:>4}  y {:>4}",
+            point.contact_id, point.x, point.y
+        ),
+        None => "inactive".to_string(),
+    }
+}
+
 fn render_device_details(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
     let text = if let Some(device) = app.devices.get(app.selected_device) {
-        vec![
+        let mut lines = vec![
             Line::from(vec![
                 Span::styled("Name: ", label_style()),
                 Span::raw(&device.name),
@@ -223,7 +453,49 @@ fn render_device_details(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorAp
                 Span::styled("Transport: ", label_style()),
                 Span::raw(&device.transport),
             ]),
-        ]
+            Line::from(vec![
+                Span::styled("Model: ", label_style()),
+                Span::raw(if device.is_edge() {
+                    "DualSense Edge"
+                } else {
+                    "DualSense"
+                }),
+            ]),
+            Line::from(vec![
+                Span::styled("USB audio: ", label_style()),
+                Span::raw(if device.supports_usb_audio() {
+                    "available through CoreAudio"
+                } else {
+                    "not exposed over Bluetooth"
+                }),
+            ]),
+        ];
+        if let Some(address) = &device.mac_address {
+            lines.push(Line::from(vec![
+                Span::styled("MAC: ", label_style()),
+                Span::raw(address),
+            ]));
+        }
+        if let Some(firmware) = device.firmware {
+            lines.push(Line::from(vec![
+                Span::styled("Firmware: ", label_style()),
+                Span::raw(firmware.firmware_label()),
+                Span::raw("  "),
+                Span::styled("Hardware: ", label_style()),
+                Span::raw(firmware.hardware_label()),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Feature level: ", label_style()),
+                Span::raw(firmware.feature_label()),
+            ]));
+        }
+        if let Some(error) = &device.diagnostics_error {
+            lines.push(Line::from(vec![
+                Span::styled("Diagnostics: ", Style::default().fg(Color::Yellow)),
+                Span::raw(error),
+            ]));
+        }
+        lines
     } else {
         vec![Line::from("Connect a DualSense over USB or Bluetooth.")]
     };
@@ -261,7 +533,7 @@ fn render_lightbar(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
         chunks[1],
         "R",
         color.r,
-        app.selected_color_channel == 0,
+        app.selected_lightbar_field == LightbarField::Red,
         Color::Red,
     );
     render_color_gauge(
@@ -269,7 +541,7 @@ fn render_lightbar(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
         chunks[2],
         "G",
         color.g,
-        app.selected_color_channel == 1,
+        app.selected_lightbar_field == LightbarField::Green,
         Color::Green,
     );
     render_color_gauge(
@@ -277,7 +549,7 @@ fn render_lightbar(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
         chunks[3],
         "B",
         color.b,
-        app.selected_color_channel == 2,
+        app.selected_lightbar_field == LightbarField::Blue,
         Color::Blue,
     );
 
@@ -310,36 +582,33 @@ fn render_color_gauge(
 }
 
 fn render_haptics(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
-    if area.height <= 15 {
+    if area.height <= 18 {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3),
                 Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(3),
                 Constraint::Min(3),
             ])
             .split(area);
-        let gauges = Layout::default()
+        let settings = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(chunks[0]);
-
+        render_haptic_state(frame, settings[0], app);
+        render_haptic_mode(frame, settings[1], app);
         render_haptic_gauge(
             frame,
-            gauges[0],
-            "Heavy",
-            app.profile.haptics.left_strength,
-            app.selected_haptic_field == 0,
+            chunks[1],
+            "Motor strength",
+            app.profile.haptics.strength(),
+            app.selected_haptic_field == HapticField::Strength,
         );
-        render_haptic_gauge(
-            frame,
-            gauges[1],
-            "Sharp",
-            app.profile.haptics.right_strength,
-            app.selected_haptic_field == 1,
-        );
-        render_haptic_mode(frame, chunks[1], app);
-        render_haptic_demos(frame, chunks[2], app);
+        render_audio_reactive_state(frame, chunks[2], app);
+        render_audio_reactive_controls(frame, chunks[3], app);
+        render_haptic_demos(frame, chunks[4], app);
         return;
     }
 
@@ -349,28 +618,28 @@ fn render_haptics(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Min(3),
             Constraint::Min(0),
         ])
         .split(area);
 
+    render_haptic_state(frame, chunks[0], app);
+    render_haptic_mode(frame, chunks[1], app);
     render_haptic_gauge(
         frame,
-        chunks[0],
-        "Heavy",
-        app.profile.haptics.left_strength,
-        app.selected_haptic_field == 0,
-    );
-    render_haptic_gauge(
-        frame,
-        chunks[1],
-        "Sharp",
-        app.profile.haptics.right_strength,
-        app.selected_haptic_field == 1,
+        chunks[2],
+        "Motor strength",
+        app.profile.haptics.strength(),
+        app.selected_haptic_field == HapticField::Strength,
     );
 
-    render_haptic_mode(frame, chunks[2], app);
-    render_haptic_demos(frame, chunks[3], app);
+    render_audio_reactive_state(frame, chunks[3], app);
+    render_audio_reactive_controls(frame, chunks[4], app);
+    render_audio_reactive_meter(frame, chunks[5], app);
+    render_haptic_demos(frame, chunks[6], app);
 
     let demo = app.selected_haptic_demo;
     let body = Paragraph::new(Line::from(vec![
@@ -381,31 +650,124 @@ fn render_haptics(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
         Span::raw(demo.label()),
     ]))
     .block(panel_block("Output", false));
-    frame.render_widget(body, chunks[4]);
+    frame.render_widget(body, chunks[7]);
 }
 
-fn render_haptic_mode(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
-    let selected = app.selected_haptic_field == 2;
-    let selected_style = selected_value_style(selected);
-    let mode = if app.profile.haptics.audio_haptics {
-        "audio-haptics"
-    } else {
-        "compat rumble"
-    };
+fn render_haptic_state(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let selected = app.selected_haptic_field == HapticField::State;
     let toggle = if app.profile.haptics.enabled {
         "enabled"
     } else {
         "disabled"
     };
-    let line = Line::from(vec![
-        Span::styled("State: ", label_style()),
-        Span::raw(toggle),
-        Span::raw("  "),
-        Span::styled("Mode: ", label_style()),
-        Span::styled(mode, selected_style),
-    ]);
-    let paragraph = Paragraph::new(line).block(panel_block("Haptics", selected));
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        toggle,
+        selected_value_style(selected),
+    )))
+    .block(panel_block("State", selected));
     frame.render_widget(paragraph, area);
+}
+
+fn render_haptic_mode(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let selected = app.selected_haptic_field == HapticField::Mode;
+    let mode = if app.profile.haptics.audio_haptics {
+        "haptic-v2"
+    } else {
+        "legacy rumble"
+    };
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        mode,
+        selected_value_style(selected),
+    )))
+    .block(panel_block("Protocol", selected));
+    frame.render_widget(paragraph, area);
+}
+
+fn render_audio_reactive_state(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let selected = app.selected_haptic_field == HapticField::ReactiveState;
+    let state = app.audio_reactive.state();
+    let body = Paragraph::new(Line::from(vec![
+        Span::styled("System audio: ", label_style()),
+        Span::styled(state.label(), selected_value_style(selected)),
+        Span::raw("  "),
+        Span::raw(if state.is_running() {
+            "Space to stop"
+        } else {
+            "Space to start"
+        }),
+    ]))
+    .block(panel_block("Audio reactive", selected));
+    frame.render_widget(body, area);
+}
+
+fn render_audio_reactive_controls(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+    let reactive = &app.profile.haptics.audio_reactive;
+    render_percent_gauge(
+        frame,
+        chunks[0],
+        "Sensitivity",
+        reactive.sensitivity_percent,
+        250,
+        app.selected_haptic_field == HapticField::ReactiveSensitivity,
+    );
+    render_percent_gauge(
+        frame,
+        chunks[1],
+        "Noise gate",
+        reactive.threshold_percent,
+        90,
+        app.selected_haptic_field == HapticField::ReactiveThreshold,
+    );
+}
+
+fn render_audio_reactive_meter(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+    let meter = app.audio_reactive.meter();
+    render_haptic_gauge(
+        frame,
+        chunks[0],
+        "Bass input",
+        scale_audio_level(meter.low),
+        false,
+    );
+    render_haptic_gauge(
+        frame,
+        chunks[1],
+        "Detail input",
+        scale_audio_level(meter.high),
+        false,
+    );
+}
+
+fn render_percent_gauge(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &'static str,
+    value: u8,
+    maximum: u8,
+    selected: bool,
+) {
+    let gauge = Gauge::default()
+        .block(panel_block(title, selected))
+        .gauge_style(gauge_style(selected, Color::Cyan))
+        .ratio(f64::from(value) / f64::from(maximum))
+        .label(if selected {
+            format!("> {value}% <")
+        } else {
+            format!("{value}%")
+        });
+    frame.render_widget(gauge, area);
+}
+
+fn scale_audio_level(level: u16) -> u8 {
+    ((u32::from(level) * u32::from(u8::MAX)) / u32::from(u16::MAX)) as u8
 }
 
 fn render_haptic_gauge(
@@ -428,12 +790,126 @@ fn render_haptic_gauge(
 }
 
 fn render_mapping(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
-    let rows = app
-        .profile
-        .mappings
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3)])
+        .split(area);
+    let view = app.mapping_view;
+    let heading = match view {
+        MappingView::ControllerProfile => "Logical controller profile; save with s",
+        MappingView::KeyboardOutput => app.mapping_status.as_str(),
+        MappingView::MouseOutput => app.mouse_mapping_status.as_str(),
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("View: ", label_style()),
+            Span::styled(
+                view.label(),
+                selected_value_style(app.active_tab == Tab::Mapping),
+            ),
+            Span::raw("  "),
+            Span::raw(heading),
+        ]))
+        .block(panel_block("Mapping", app.active_tab == Tab::Mapping)),
+        chunks[0],
+    );
+
+    match view {
+        MappingView::ControllerProfile => render_controller_mapping_table(frame, chunks[1], app),
+        MappingView::KeyboardOutput => render_keyboard_mapping_table(frame, chunks[1], app),
+        MappingView::MouseOutput => render_mouse_mapping(frame, chunks[1], app),
+    }
+}
+
+fn render_mouse_mapping(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let (settings_area, controls_area) = if area.height >= 11 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(7), Constraint::Length(3)])
+            .split(area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (area, None)
+    };
+    let mouse = &app.profile.mouse_mapping;
+    let settings = [
+        (
+            MouseField::Enabled,
+            "Output",
+            if mouse.enabled {
+                "enabled".to_string()
+            } else {
+                "disabled".to_string()
+            },
+        ),
+        (
+            MouseField::PointerSpeed,
+            "Pointer speed",
+            format!("{} px/tick", mouse.pointer_speed),
+        ),
+        (
+            MouseField::Deadzone,
+            "Dead zone",
+            format!("{}%", mouse.deadzone_percent),
+        ),
+        (
+            MouseField::ScrollSpeed,
+            "Scroll speed",
+            format!("{} px/tick", mouse.scroll_speed),
+        ),
+    ];
+    let selected_index = settings
+        .iter()
+        .position(|(field, _, _)| *field == app.selected_mouse_field)
+        .unwrap_or(0);
+    let visible_range = visible_list_range(
+        settings.len(),
+        selected_index,
+        usize::from(settings_area.height.saturating_sub(3)),
+    );
+    let rows = settings[visible_range].iter().map(|(field, label, value)| {
+        let style = if *field == app.selected_mouse_field {
+            selected_row_style()
+        } else {
+            Style::default()
+        };
+        Row::new(vec![*label, value.as_str()]).style(style)
+    });
+    let table = Table::new(rows, [Constraint::Length(18), Constraint::Min(18)])
+        .header(
+            Row::new(vec!["Setting", "Value"]).style(
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        )
+        .block(panel_block("Mouse output", app.active_tab == Tab::Mapping));
+    frame.render_widget(table, settings_area);
+
+    if let Some(controls_area) = controls_area {
+        let controls = Paragraph::new(vec![
+            Line::from("Left stick: pointer  |  Right stick Y: scroll"),
+            Line::from("Cross: left click  |  Circle: right click  |  Square: middle click"),
+        ])
+        .block(panel_block("Mouse controls", false))
+        .wrap(Wrap { trim: true });
+        frame.render_widget(controls, controls_area);
+    }
+}
+
+fn render_controller_mapping_table(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let mappings = &app.profile.mappings;
+    let visible_range = visible_list_range(
+        mappings.len(),
+        app.selected_mapping,
+        usize::from(area.height.saturating_sub(3)),
+    );
+    let range_start = visible_range.start;
+    let rows = mappings[visible_range]
         .iter()
         .enumerate()
-        .map(|(index, mapping)| {
+        .map(|(visible_index, mapping)| {
+            let index = range_start + visible_index;
             let style = if index == app.selected_mapping {
                 selected_row_style()
             } else {
@@ -447,7 +923,7 @@ fn render_mapping(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
         [
             Constraint::Length(14),
             Constraint::Length(4),
-            Constraint::Length(14),
+            Constraint::Length(18),
         ],
     )
     .header(
@@ -457,7 +933,57 @@ fn render_mapping(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
                 .add_modifier(Modifier::BOLD),
         ),
     )
-    .block(panel_block("Mapping", app.active_tab == Tab::Mapping));
+    .block(panel_block(
+        "Controller profile",
+        app.active_tab == Tab::Mapping,
+    ));
+    frame.render_widget(table, area);
+}
+
+fn render_keyboard_mapping_table(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let bindings = &app.profile.keyboard_mapping.bindings;
+    let visible_range = visible_list_range(
+        bindings.len(),
+        app.selected_keyboard_mapping,
+        usize::from(area.height.saturating_sub(3)),
+    );
+    let range_start = visible_range.start;
+    let rows = bindings[visible_range]
+        .iter()
+        .enumerate()
+        .map(|(visible_index, binding)| {
+            let index = range_start + visible_index;
+            let style = if index == app.selected_keyboard_mapping {
+                selected_row_style()
+            } else {
+                Style::default()
+            };
+            Row::new(vec![binding.from.label(), "->", binding.to.label()]).style(style)
+        });
+    let state = if app.profile.keyboard_mapping.enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(14),
+            Constraint::Length(4),
+            Constraint::Length(18),
+        ],
+    )
+    .header(
+        Row::new(vec!["Source", "", "Key"]).style(
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(Modifier::BOLD),
+        ),
+    )
+    .block(panel_block(
+        &format!("Keyboard output ({state})"),
+        app.active_tab == Tab::Mapping,
+    ));
     frame.render_widget(table, area);
 }
 
@@ -467,31 +993,39 @@ fn render_adaptive_triggers(frame: &mut Frame<'_>, area: Rect, app: &Configurato
         .constraints([
             Constraint::Length(3),
             Constraint::Length(3),
-            Constraint::Min(3),
             Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(3),
             Constraint::Min(0),
         ])
         .split(area);
 
-    let target_selected = app.selected_trigger_field == 0;
+    let target_selected = app.selected_trigger_field == TriggerField::Target;
     let target_style = selected_value_style(target_selected);
     let target_line = Line::from(vec![
         Span::styled("Target: ", label_style()),
         Span::styled(app.profile.adaptive_triggers.target.label(), target_style),
-        Span::raw("  "),
-        Span::styled("Preset: ", label_style()),
-        Span::styled(
-            app.profile.adaptive_triggers.preset.label(),
-            selected_value_style(app.selected_trigger_field == 2),
-        ),
     ]);
     frame.render_widget(
         Paragraph::new(target_line).block(panel_block("Target", target_selected)),
         chunks[0],
     );
 
+    let mode_selected = app.selected_trigger_field == TriggerField::Mode;
+    let mode_line = Line::from(vec![
+        Span::styled("Mode: ", label_style()),
+        Span::styled(
+            app.profile.adaptive_triggers.mode.label(),
+            selected_value_style(mode_selected),
+        ),
+    ]);
+    frame.render_widget(
+        Paragraph::new(mode_line).block(panel_block("Effect mode", mode_selected)),
+        chunks[1],
+    );
+
     let intensity = app.profile.adaptive_triggers.intensity;
-    let intensity_selected = app.selected_trigger_field == 1;
+    let intensity_selected = app.selected_trigger_field == TriggerField::Intensity;
     let gauge = Gauge::default()
         .block(panel_block("Intensity", intensity_selected))
         .gauge_style(gauge_style(intensity_selected, Color::Yellow))
@@ -501,30 +1035,93 @@ fn render_adaptive_triggers(frame: &mut Frame<'_>, area: Rect, app: &Configurato
         } else {
             format!("{intensity:3}")
         });
-    frame.render_widget(gauge, chunks[1]);
+    frame.render_widget(gauge, chunks[2]);
 
-    render_trigger_presets(frame, chunks[2], app);
+    render_trigger_custom_controls(frame, chunks[3], app);
 
-    let preset = app.profile.adaptive_triggers.preset;
+    render_trigger_presets(frame, chunks[4], app);
+
+    let trigger = &app.profile.adaptive_triggers;
+    let expected_text = match trigger.mode {
+        crate::model::AdaptiveTriggerMode::Preset => trigger.preset.expected_effect().to_string(),
+        crate::model::AdaptiveTriggerMode::Resistance => format!(
+            "constant resistance from position {} to {}",
+            trigger.start_position, trigger.end_position
+        ),
+        crate::model::AdaptiveTriggerMode::Vibration => format!(
+            "persistent vibration from position {} at frequency {}",
+            trigger.start_position, trigger.frequency
+        ),
+    };
     let expected = Paragraph::new(Line::from(vec![
         Span::styled("Expected: ", label_style()),
-        Span::raw(preset.expected_effect()),
+        Span::raw(expected_text),
     ]))
-    .block(panel_block("Effect", false));
-    frame.render_widget(expected, chunks[3]);
-
-    let body = Paragraph::new(
-        "Apply sends a persistent adaptive trigger report. Reset sets both triggers to Off.",
-    )
-    .block(panel_block("Output", false))
+    .block(panel_block("Effect", false))
     .wrap(Wrap { trim: true });
-    frame.render_widget(body, chunks[4]);
+    frame.render_widget(expected, chunks[5]);
+}
+
+fn render_trigger_custom_controls(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+        ])
+        .split(area);
+    let trigger = &app.profile.adaptive_triggers;
+    render_trigger_custom_value(
+        frame,
+        chunks[0],
+        "Start",
+        trigger.start_position,
+        app.selected_trigger_field == TriggerField::StartPosition,
+    );
+    render_trigger_custom_value(
+        frame,
+        chunks[1],
+        "End",
+        trigger.end_position,
+        app.selected_trigger_field == TriggerField::EndPosition,
+    );
+    render_trigger_custom_value(
+        frame,
+        chunks[2],
+        "Frequency",
+        trigger.frequency,
+        app.selected_trigger_field == TriggerField::Frequency,
+    );
+}
+
+fn render_trigger_custom_value(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    title: &'static str,
+    value: u8,
+    selected: bool,
+) {
+    let paragraph = Paragraph::new(Line::from(Span::styled(
+        value.to_string(),
+        selected_value_style(selected),
+    )))
+    .alignment(Alignment::Center)
+    .block(panel_block(title, selected));
+    frame.render_widget(paragraph, area);
 }
 
 fn render_trigger_presets(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
-    let rows = AdaptiveTriggerPreset::ALL.into_iter().map(|preset| {
-        let selected =
-            app.selected_trigger_field == 2 && preset == app.profile.adaptive_triggers.preset;
+    let presets = AdaptiveTriggerPreset::ALL;
+    let selected_index = presets
+        .iter()
+        .position(|preset| *preset == app.profile.adaptive_triggers.preset)
+        .unwrap_or(0);
+    let visible_rows = usize::from(area.height.saturating_sub(3));
+    let visible_range = visible_list_range(presets.len(), selected_index, visible_rows);
+    let rows = presets[visible_range].iter().copied().map(|preset| {
+        let selected = app.selected_trigger_field == TriggerField::Presets
+            && preset == app.profile.adaptive_triggers.preset;
         let style = if selected {
             selected_row_style()
         } else {
@@ -541,7 +1138,10 @@ fn render_trigger_presets(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorA
                     .add_modifier(Modifier::BOLD),
             ),
         )
-        .block(panel_block("Presets", app.selected_trigger_field == 2));
+        .block(panel_block(
+            "Presets",
+            app.selected_trigger_field == TriggerField::Presets,
+        ));
     frame.render_widget(table, area);
 }
 
@@ -552,20 +1152,10 @@ fn render_haptic_demos(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp)
         .iter()
         .position(|demo| *demo == app.selected_haptic_demo)
         .unwrap_or(0);
-    let start = if visible_rows == 0 || visible_rows >= demos.len() {
-        0
-    } else {
-        selected_index
-            .saturating_sub(visible_rows / 2)
-            .min(demos.len() - visible_rows)
-    };
-    let end = if visible_rows == 0 {
-        0
-    } else {
-        (start + visible_rows).min(demos.len())
-    };
-    let rows = demos[start..end].iter().copied().map(|demo| {
-        let selected = app.selected_haptic_field == 3 && demo == app.selected_haptic_demo;
+    let visible_range = visible_list_range(demos.len(), selected_index, visible_rows);
+    let rows = demos[visible_range].iter().copied().map(|demo| {
+        let selected =
+            app.selected_haptic_field == HapticField::Demo && demo == app.selected_haptic_demo;
         let style = if selected {
             selected_row_style()
         } else {
@@ -582,8 +1172,28 @@ fn render_haptic_demos(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp)
                     .add_modifier(Modifier::BOLD),
             ),
         )
-        .block(panel_block("Demos", app.selected_haptic_field == 3));
+        .block(panel_block(
+            "Demos",
+            app.selected_haptic_field == HapticField::Demo,
+        ));
     frame.render_widget(table, area);
+}
+
+fn visible_list_range(
+    item_count: usize,
+    selected_index: usize,
+    visible_rows: usize,
+) -> std::ops::Range<usize> {
+    let visible_rows = visible_rows.min(item_count);
+    if visible_rows == 0 {
+        return 0..0;
+    }
+
+    let selected_index = selected_index.min(item_count - 1);
+    let start = selected_index
+        .saturating_sub(visible_rows / 2)
+        .min(item_count - visible_rows);
+    start..start + visible_rows
 }
 
 fn render_gamepad(frame: &mut Frame<'_>, area: Rect, state: &GamepadState) {
@@ -614,8 +1224,11 @@ fn render_gamepad(frame: &mut Frame<'_>, area: Rect, state: &GamepadState) {
 
     let center = vec![
         button_line(state, &[Button::Touchpad]),
+        Line::from(touch_summary(state)),
         Line::from(""),
         button_line(state, &[Button::Ps, Button::Mute]),
+        button_line(state, &[Button::Fn1, Button::Fn2]),
+        button_line(state, &[Button::LeftPaddle, Button::RightPaddle]),
         Line::from(""),
         Line::from(vec![
             Span::styled("Pressed: ", label_style()),
@@ -735,6 +1348,20 @@ fn pressed_summary(state: &GamepadState) -> String {
         .join(" ")
 }
 
+fn touch_summary(state: &GamepadState) -> String {
+    let active = state
+        .touch_points
+        .iter()
+        .flatten()
+        .map(|point| format!("{}:{},{}", point.contact_id, point.x, point.y))
+        .collect::<Vec<_>>();
+    if active.is_empty() {
+        "Touch: inactive".to_string()
+    } else {
+        format!("Touch: {}", active.join(" "))
+    }
+}
+
 fn render_status(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
     let dirty = if app.dirty { "modified" } else { "saved" };
     let device = app
@@ -810,12 +1437,25 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
 fn footer_control_lines(app: &ConfiguratorApp) -> Vec<Line<'static>> {
     match app.active_tab {
         Tab::Devices => vec![
-            control_group_line("Devices", &[("Up/Down", "select device"), ("r", "refresh")]),
+            control_group_line(
+                "Devices",
+                &[("Up/Down", "select device"), ("r", "refresh / reapply")],
+            ),
             Line::from(""),
         ],
         Tab::Input => vec![
-            control_group_line("Input", &[("Gamepad", "move sticks / press buttons")]),
-            control_group_line("Actions", &[("r", "refresh devices")]),
+            control_group_line(
+                "Input",
+                &[("Gamepad", "move sticks / press buttons / touchpad")],
+            ),
+            control_group_line("Actions", &[("r", "refresh / reapply profiles")]),
+        ],
+        Tab::Sensors => vec![
+            control_group_line(
+                "Sensors",
+                &[("Touchpad", "two contacts"), ("Motion", "gyro + accel")],
+            ),
+            control_group_line("Actions", &[("r", "refresh / reapply profiles")]),
         ],
         Tab::Lightbar => vec![
             control_group_line(
@@ -833,34 +1473,108 @@ fn footer_control_lines(app: &ConfiguratorApp) -> Vec<Line<'static>> {
                 "Haptics",
                 &[
                     ("Up/Down", "select field"),
-                    ("Left/Right", "adjust value/demo"),
-                    ("Space", "toggle"),
+                    ("Left/Right", "adjust/toggle"),
+                    ("Space", "toggle / start audio reactive / play"),
                 ],
             ),
-            control_group_line("Actions", &[("d or a", "play demo"), ("p", "pulse")]),
+            control_group_line(
+                "Actions",
+                &[
+                    ("d", "play demo"),
+                    ("a/Enter", "play demo / toggle audio reactive"),
+                    ("p", "pulse"),
+                ],
+            ),
         ],
         Tab::Triggers => vec![
             control_group_line(
                 "Triggers",
                 &[
-                    ("Up/Down", "Target > Intensity > Presets"),
+                    (
+                        "Up/Down",
+                        "Target > Mode > Intensity > Start > End > Frequency > Presets",
+                    ),
                     ("Left/Right", "change field"),
                     ("+/-", "fine tune"),
                 ],
             ),
             control_group_line("Actions", &[("a/Enter", "apply preset"), ("x", "reset")]),
         ],
-        Tab::Mapping => vec![
+        Tab::System => vec![
             control_group_line(
-                "Mapping",
+                "System",
                 &[
-                    ("Up/Down", "select source"),
-                    ("Left/Right", "change target"),
-                    ("Space", "reset row"),
+                    ("Up/Down", "select field"),
+                    ("Left/Right", "change value"),
+                    ("Space", "toggle mic mute"),
                 ],
             ),
-            Line::from(""),
+            control_group_line("Actions", &[("a/Enter", "apply HID controls")]),
         ],
+        Tab::Mapping => match app.mapping_view {
+            MappingView::ControllerProfile => vec![
+                control_group_line(
+                    "Controller",
+                    &[
+                        ("Up/Down", "select source"),
+                        ("Left/Right", "change target"),
+                        ("Space", "reset row"),
+                    ],
+                ),
+                control_group_line(
+                    "Views",
+                    &[
+                        ("m", "keyboard output"),
+                        ("o", "Accessibility settings"),
+                        ("s", "save profile"),
+                    ],
+                ),
+            ],
+            MappingView::KeyboardOutput => vec![
+                control_group_line(
+                    "Keyboard",
+                    &[
+                        ("Up/Down", "select source"),
+                        ("Left/Right", "change key"),
+                        ("Space", "disable row"),
+                    ],
+                ),
+                control_group_line(
+                    "Actions",
+                    &[
+                        ("k or a/Enter", "toggle output"),
+                        ("o", "Accessibility settings"),
+                        ("m", "mouse output"),
+                    ],
+                ),
+            ],
+            MappingView::MouseOutput => vec![
+                control_group_line(
+                    "Mouse",
+                    &[
+                        ("Left stick", "pointer"),
+                        ("Right stick Y", "scroll"),
+                        ("Cross/Circle/Square", "left/right/middle"),
+                    ],
+                ),
+                control_group_line(
+                    "Settings",
+                    &[
+                        ("Up/Down", "select setting"),
+                        ("Left/Right", "adjust value"),
+                        ("Space", "toggle output"),
+                    ],
+                ),
+                control_group_line(
+                    "Actions",
+                    &[
+                        ("k or a/Enter", "toggle output"),
+                        ("o", "Accessibility settings"),
+                        ("m", "controller profile"),
+                    ],
+                ),
+            ],
+        },
     }
 }
 
@@ -886,7 +1600,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &ConfiguratorApp) {
         "Global",
         &[
             ("Tab/Shift+Tab", "panel"),
-            ("1-6", "jump"),
+            ("1-8", "jump"),
             ("s", "save"),
             ("q/Esc", "quit"),
         ],
@@ -973,4 +1687,33 @@ fn key_style() -> Style {
 
 fn to_color(color: Rgb) -> Color {
     Color::Rgb(color.r, color.g, color.b)
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::layout::{Direction, Layout, Rect};
+
+    use super::{system_constraints, visible_list_range, SYSTEM_SECTION_COUNT};
+
+    #[test]
+    fn visible_list_range_keeps_last_selected_item_visible() {
+        assert_eq!(visible_list_range(8, 7, 1), 7..8);
+        assert_eq!(visible_list_range(8, 7, 3), 5..8);
+    }
+
+    #[test]
+    fn visible_list_range_centers_middle_selection_when_possible() {
+        assert_eq!(visible_list_range(8, 4, 3), 3..6);
+        assert_eq!(visible_list_range(8, 0, 3), 0..3);
+    }
+
+    #[test]
+    fn system_layout_provides_every_rendered_section() {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(system_constraints())
+            .split(Rect::new(0, 0, 80, 24));
+
+        assert_eq!(chunks.len(), SYSTEM_SECTION_COUNT);
+    }
 }

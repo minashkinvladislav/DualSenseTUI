@@ -1,8 +1,8 @@
 use anyhow::{bail, Result};
 
 use crate::{
-    dualsense::{AdaptiveTriggerEffect, DeviceInfo, DualSenseControl, HapticFrame},
-    model::{GamepadState, Rgb},
+    dualsense::{AdaptiveTriggerEffect, DeviceInfo, DualSenseControl, HapticFrame, HapticOutput},
+    model::{GamepadState, Rgb, SystemProfile},
 };
 
 pub struct DualSenseBackend;
@@ -36,6 +36,15 @@ impl DualSenseControl for DualSenseBackend {
         bail!("IOKit backend is available only on macOS")
     }
 
+    fn set_haptics(
+        &mut self,
+        _index: usize,
+        _output: HapticOutput,
+        _audio_haptics: bool,
+    ) -> Result<()> {
+        bail!("IOKit backend is available only on macOS")
+    }
+
     fn play_haptics(
         &mut self,
         _index: usize,
@@ -52,6 +61,14 @@ impl DualSenseControl for DualSenseBackend {
         _right: AdaptiveTriggerEffect,
     ) -> Result<()> {
         bail!("IOKit backend is available only on macOS")
+    }
+
+    fn set_system_controls(&mut self, _index: usize, _system: &SystemProfile) -> Result<()> {
+        bail!("IOKit backend is available only on macOS")
+    }
+
+    fn take_device_change(&mut self) -> bool {
+        false
     }
 
     fn read_state(&mut self, _index: usize) -> Result<Option<GamepadState>> {

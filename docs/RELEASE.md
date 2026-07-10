@@ -1,56 +1,91 @@
 # DualSenseTUI Release Checklist
 
-## Version
+## Product Artifact
+
+The public artifact is one universal macOS disk image:
+
+```text
+DualSenseTUI-<version>-universal.dmg
+  DualSenseTUI.app -> Applications
+```
+
+It contains the SwiftUI desktop app and its signed Rust `DualSenseCore` helper. Do not publish the legacy terminal `.tar.gz` as the primary download.
+
+## Version And Verification
 
 1. Update `version` in `Cargo.toml`.
 2. Add a matching entry to `CHANGELOG.md`.
-3. Run local verification:
+3. Install full Xcode and select it with:
+
+   ```bash
+   sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+   ```
+
+4. Run local verification:
+
+   ```bash
+   cargo fmt --check
+   cargo test
+   cargo clippy --all-targets -- -D warnings
+   scripts/build-macos-app.sh release
+   ```
+
+5. Test `target/gui/release/DualSenseTUI.app` from Finder, not only from Terminal.
+
+## Developer ID And Notarization
+
+Public distribution requires Apple Developer Program membership, a **Developer ID Application** certificate, and notarization. Apple Development certificates are valid for local development but not for notarized public releases.
+
+For a local signed release, create a notarytool keychain profile once:
 
 ```bash
-cargo fmt --check
-cargo test
-cargo clippy -- -D warnings
-cargo build --release
+xcrun notarytool store-credentials DualSenseTUI-notary \
+  --apple-id "your-apple-id@example.com" \
+  --team-id "YOUR_TEAM_ID" \
+  --password "APP_SPECIFIC_PASSWORD"
 ```
 
-## Local macOS Package
-
-Build the archive for the current Mac:
+Then package, sign, notarize, staple, and assess the universal DMG:
 
 ```bash
-scripts/package-release.sh
+DUALSENSE_TUI_DISTRIBUTION=1 \
+DUALSENSE_TUI_NOTARY_PROFILE=DualSenseTUI-notary \
+scripts/package-macos-dmg.sh
 ```
 
-Upload both files from `dist/`:
+The output is:
 
-- `DualSenseTUI-<version>-<target>.tar.gz`
-- `DualSenseTUI-<version>-<target>.tar.gz.sha256`
+- `dist/DualSenseTUI-<version>-universal.dmg`
+- `dist/DualSenseTUI-<version>-universal.dmg.sha256`
+
+The script refuses a distribution build when the Developer ID identity or notary profile is missing. It enables Hardened Runtime and secure timestamps for both executables, signs the DMG, submits it through `notarytool`, staples the ticket, and runs `spctl` assessment.
 
 ## GitHub Release
 
-Create and push a tag:
+The tag workflow builds a universal DMG and only publishes after code signing and notarization complete. Configure these repository secrets before pushing a `v*` tag:
+
+- `APPLE_CERTIFICATE_BASE64`: base64-encoded `.p12` containing the Developer ID Application certificate and private key.
+- `APPLE_CERTIFICATE_PASSWORD`: password for that `.p12`.
+- `KEYCHAIN_PASSWORD`: temporary CI keychain password.
+- `APPLE_ID`: Apple ID used for notarization.
+- `APPLE_TEAM_ID`: Apple Developer team ID.
+- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for notarization.
+
+Create and push the annotated tag only after the secrets are present:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+release_version="$(awk -F\" '/^version =/ { print $2; exit }' Cargo.toml)"
+git tag -a "v${release_version}" -m "DualSenseTUI ${release_version}"
+git push origin main "v${release_version}"
 ```
 
-The release workflow builds separate archives for:
+The workflow validates that the tag matches `Cargo.toml`, then intentionally fails early when a required secret is absent. That prevents a tag from publishing an ad-hoc or unnotarized “public” artifact. After correcting a workflow configuration issue, run **Release** manually from the same `v<version>` tag and enter that tag in the dispatch form.
 
-- `aarch64-apple-darwin`
-- `x86_64-apple-darwin`
+## Distribution QA
 
-## Signing And Notarization
-
-For a technical audience, unsigned tarballs with SHA-256 checksums are acceptable for early releases.
-
-For broad macOS distribution, sign with a Developer ID Application certificate and submit the release artifact for Apple notarization. This requires an Apple Developer account and credentials that should be stored as CI secrets, not committed to the repository.
-
-Recommended CI secrets for a future signed workflow:
-
-- `APPLE_DEVELOPER_ID`
-- `APPLE_ID`
-- `APPLE_TEAM_ID`
-- `APPLE_APP_SPECIFIC_PASSWORD`
-
-Do not publish a signed release until the notarization step succeeds.
+1. Download the release DMG on a clean macOS user account or another Mac.
+2. Verify the disk image mounts and offers `DualSenseTUI.app` plus the `Applications` shortcut.
+3. Drag the app to Applications and launch it from Finder.
+4. Confirm Gatekeeper accepts it without bypass instructions.
+5. Confirm the app starts the Rust controller service, detects a controller, and can request Accessibility for mouse output.
+6. Test replacing a prior app at the same `/Applications/DualSenseTUI.app` path; profiles must remain available and the background service must still point to that path. Re-enable the background service only if the app was moved elsewhere.

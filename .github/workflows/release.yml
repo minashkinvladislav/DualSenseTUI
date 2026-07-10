@@ -4,53 +4,131 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v<version> tag to publish"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
+  verify:
+    name: Verify
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Build
-        run: cargo build --release --target "${{ matrix.target }}"
-
-      - name: Package
+      - name: Validate release tag
         shell: bash
         run: |
           set -euo pipefail
-          version="$(awk -F\" '/^version =/ { print $2; exit }' Cargo.toml)"
-          app_name="DualSenseTUI"
-          archive_base="${app_name}-${version}-${{ matrix.target }}"
-          staging_dir="dist/${archive_base}"
-          archive_path="dist/${archive_base}.tar.gz"
+          expected_tag="v$(awk -F\" '/^version =/ { print $2; exit }' Cargo.toml)"
+          if [[ "$RELEASE_TAG" != "$expected_tag" ]]; then
+            echo "::error title=Version mismatch::Release tag $RELEASE_TAG does not match Cargo.toml ($expected_tag)."
+            exit 1
+          fi
 
-          mkdir -p "$staging_dir"
-          cp "target/${{ matrix.target }}/release/${app_name}" "$staging_dir/"
-          cp README.md "$staging_dir/"
-          cp CHANGELOG.md "$staging_dir/"
-          mkdir -p "$staging_dir/docs"
-          cp -R docs/screenshots "$staging_dir/docs/"
-          tar -C dist -czf "$archive_path" "$archive_base"
-          shasum -a 256 "$archive_path" > "${archive_path}.sha256"
+      - name: Rust checks
+        run: |
+          cargo fmt --check
+          cargo test
+          cargo clippy --all-targets -- -D warnings
 
-      - name: Upload artifacts
+      - name: Build native desktop app
+        run: scripts/build-macos-app.sh debug
+
+  release:
+    name: Sign, notarize, and publish universal DMG
+    needs: verify
+    runs-on: macos-15
+    env:
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      DUALSENSE_TUI_DISTRIBUTION: "1"
+      DUALSENSE_TUI_NOTARY_PROFILE: DualSenseTUI-notary
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Validate signing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in \
+            APPLE_CERTIFICATE_BASE64 \
+            APPLE_CERTIFICATE_PASSWORD \
+            KEYCHAIN_PASSWORD \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            APPLE_APP_SPECIFIC_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error title=Missing release secret::Configure ${name} before publishing a public macOS release."
+              exit 1
+            fi
+          done
+
+      - name: Import Developer ID certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          keychain_path="$RUNNER_TEMP/dualsense-signing.keychain-db"
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12
+          security list-keychain -d user -s "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+
+      - name: Configure notary credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun notarytool store-credentials "$DUALSENSE_TUI_NOTARY_PROFILE" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+      - name: Build signed universal DMG
+        run: scripts/package-macos-dmg.sh
+
+      - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            dist/*.tar.gz
+            dist/*.dmg
             dist/*.sha256

@@ -8,7 +8,7 @@ on:
 
 jobs:
   checks:
-    name: fmt, test, clippy
+    name: fmt, test, clippy, desktop app
     runs-on: macos-14
 
     steps:
@@ -23,4 +23,7 @@ jobs:
         run: cargo test
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build native desktop app
+        run: scripts/build-macos-app.sh debug
