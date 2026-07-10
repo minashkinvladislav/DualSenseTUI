@@ -24,16 +24,17 @@ dist_dir="${workspace_dir}/dist"
 archive_name="${app_name}-${version}-universal.dmg"
 archive_path="${dist_dir}/${archive_name}"
 checksum_path="${archive_path}.sha256"
-staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/${app_name}-dmg.XXXXXX")"
-trap 'rm -rf "$staging_dir"' EXIT
+staging_root="$(mktemp -d "${TMPDIR:-/tmp}/${app_name}-dmg.XXXXXX")"
+staging_dir="${staging_root}/${app_name}"
+trap 'rm -rf "$staging_root"' EXIT
 
 mkdir -p "$dist_dir"
+mkdir -p "$staging_dir"
 rm -f "$archive_path" "$checksum_path"
 cp -R "$app_bundle" "${staging_dir}/${app_name}.app"
 ln -s /Applications "${staging_dir}/Applications"
 
 diskutil image create from \
-  --volumeName "$app_name" \
   --format UDZO \
   "$staging_dir" \
   "$archive_path"
