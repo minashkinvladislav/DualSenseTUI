@@ -34,10 +34,19 @@ rm -f "$archive_path" "$checksum_path"
 cp -R "$app_bundle" "${staging_dir}/${app_name}.app"
 ln -s /Applications "${staging_dir}/Applications"
 
-diskutil image create from \
+if ! diskutil image create from \
   --format UDZO \
   "$staging_dir" \
-  "$archive_path"
+  "$archive_path"; then
+  rm -f "$archive_path"
+  echo "Warning: diskutil cannot create a UDZO image on this macOS version; falling back to hdiutil." >&2
+  hdiutil create \
+    -volname "$app_name" \
+    -srcfolder "$staging_dir" \
+    -ov \
+    -format UDZO \
+    "$archive_path"
+fi
 
 if [[ "$distribution" == "1" ]]; then
   signing_identity="${DUALSENSE_TUI_CODESIGN_IDENTITY:-}"
