@@ -26,47 +26,6 @@ The desktop app is the primary interface. The original Ratatui console remains a
 
 `Haptic v2` and `Legacy rumble` select controller compatibility behavior for the same HID motor values; they are not audio sources. Haptics demos and audio-reactive playback send the same level to both motors.
 
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshots/devices.png" width="420" alt="DualSenseTUI dashboard and controller selection">
-      <br>
-      <sub>Dashboard</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/input.png" width="420" alt="DualSenseTUI live input view">
-      <br>
-      <sub>Live input</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshots/lightbar.png" width="420" alt="DualSenseTUI lightbar controls">
-      <br>
-      <sub>Lightbar</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/haptics.png" width="420" alt="DualSenseTUI haptics controls">
-      <br>
-      <sub>Haptics</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="docs/screenshots/triggers.png" width="420" alt="DualSenseTUI adaptive trigger presets">
-      <br>
-      <sub>Adaptive triggers</sub>
-    </td>
-    <td align="center">
-      <img src="docs/screenshots/mapping.png" width="420" alt="DualSenseTUI keyboard mappings">
-      <br>
-      <sub>Keyboard mappings</sub>
-    </td>
-  </tr>
-</table>
-
 ## Install
 
 ### Download
@@ -144,6 +103,47 @@ Use the [manual test checklist](docs/TESTING.md) for hardware regression testing
 ## Appendix: Terminal UI
 
 The Ratatui interface is retained for advanced workflows, development, and users who prefer a terminal. It uses the same IOKit backend and controller profiles as the desktop app.
+
+### TUI Screenshots
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/devices.png" width="420" alt="DualSenseTUI TUI Devices panel">
+      <br>
+      <sub>Devices</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/input.png" width="420" alt="DualSenseTUI TUI Input panel">
+      <br>
+      <sub>Input</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/lightbar.png" width="420" alt="DualSenseTUI TUI Lightbar panel">
+      <br>
+      <sub>Lightbar</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/haptics.png" width="420" alt="DualSenseTUI TUI Haptics panel">
+      <br>
+      <sub>Haptics</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/triggers.png" width="420" alt="DualSenseTUI TUI Triggers panel">
+      <br>
+      <sub>Triggers</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/mapping.png" width="420" alt="DualSenseTUI TUI Mapping panel">
+      <br>
+      <sub>Mapping</sub>
+    </td>
+  </tr>
+</table>
 
 ### Run the console
 
